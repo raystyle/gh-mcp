@@ -15,9 +15,9 @@ import pytest
 from fake_github import FakeGitHub, code, error, ok, repo
 from mcp.server.mcpserver.exceptions import ToolError
 
-from gh_search_mcp import __version__
-from gh_search_mcp.github import GitHubError
-from gh_search_mcp.server import AppContext, create_server, search_code, search_repositories
+from gh_mcp import __version__
+from gh_mcp.github import GitHubError
+from gh_mcp.server import AppContext, create_server, search_code, search_repositories
 
 
 # ---------- tool catalogue ----------
@@ -82,7 +82,7 @@ class ServerProcess:
 
     def __init__(self, env: dict[str, str]) -> None:
         self.proc = subprocess.Popen(
-            [sys.executable, "-m", "gh_search_mcp"],
+            [sys.executable, "-m", "gh_mcp"],
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
@@ -125,7 +125,7 @@ def test_stdio_handshake_tool_list_and_token_guidance():
     with ServerProcess(token_free_env()) as server:
         init = server.rpc(1, "initialize", {
             "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "test", "version": "0"}})
-        assert init["serverInfo"] == {"name": "gh-search-mcp", "version": __version__}
+        assert init["serverInfo"] == {"name": "gh-mcp", "version": __version__}
         assert init["protocolVersion"]
         server.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
@@ -142,7 +142,7 @@ def test_stdio_handshake_tool_list_and_token_guidance():
 
 def test_version_flag_prints_version_and_exits():
     completed = subprocess.run(
-        [sys.executable, "-m", "gh_search_mcp", "--version"], capture_output=True, text=True, encoding="utf-8"
+        [sys.executable, "-m", "gh_mcp", "--version"], capture_output=True, text=True, encoding="utf-8"
     )
     assert completed.returncode == 0
     assert completed.stdout.strip() == __version__

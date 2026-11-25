@@ -1,8 +1,8 @@
 """Rendering of search results to markdown."""
 
 from fake_github import code, repo
-from gh_search_mcp.render import DESCRIPTION_CHARS, FRAGMENT_CHARS, FRAGMENT_LINES, code as render_code
-from gh_search_mcp.render import repositories as render_repositories
+from gh_mcp.render import DESCRIPTION_CHARS, FRAGMENT_CHARS, FRAGMENT_LINES, code as render_code
+from gh_mcp.render import repositories as render_repositories
 
 
 def result(items: list[dict], total: int | None = None, *, incomplete: bool = False, hidden_private: int = 0) -> dict:

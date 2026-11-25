@@ -1,5 +1,5 @@
 [project]
-name = "gh-search-mcp"
+name = "gh-mcp"
 version = "0.1.0"
 description = "Read-only MCP server (stdio) that searches public GitHub repositories and code"
 readme = "README.md"
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-gh-search-mcp = "gh_search_mcp.server:main"
+gh-mcp = "gh_mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]
@@ -25,7 +25,7 @@ dev = [
 ]
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/gh_search_mcp"]
+packages = ["src/gh_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

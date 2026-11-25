@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from gh_search_mcp.github import GitHubClient
+from gh_mcp.github import GitHubClient
 
 Handler = Callable[[httpx.Request], httpx.Response]
 

@@ -165,7 +165,7 @@ class GitHubClient:
     ) -> None:
         headers = {
             "Accept": "application/vnd.github+json",
-            "User-Agent": f"gh-search-mcp/{__version__}",
+            "User-Agent": f"gh-mcp/{__version__}",
             "X-GitHub-Api-Version": API_VERSION,
         }
         if token:

@@ -22,7 +22,7 @@ from .render import code as render_code
 from .render import file_contents as render_file_contents
 from .render import repositories as render_repositories
 
-SERVER_NAME = "gh-search-mcp"
+SERVER_NAME = "gh-mcp"
 TOKEN_ENV_VARS = ("GITHUB_PAT", "GITHUB_TOKEN")
 """Checked in this order. Without a token, repository search still works (unauthenticated
 rate limits apply) but code search does not: GitHub requires a token for it."""

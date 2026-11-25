@@ -6,9 +6,9 @@ import httpx
 import pytest
 from fake_github import FakeGitHub, entry, error, file_entry, routes, tree
 
-from gh_search_mcp.github import MAX_CHARS, MAX_LINES, MAX_TREE_ENTRIES, GitHubError
-from gh_search_mcp.render import human_size
-from gh_search_mcp.server import AppContext, get_file_contents
+from gh_mcp.github import MAX_CHARS, MAX_LINES, MAX_TREE_ENTRIES, GitHubError
+from gh_mcp.render import human_size
+from gh_mcp.server import AppContext, get_file_contents
 from mcp.server.mcpserver.exceptions import ToolError
 
 REPO = "/repos/o/r"

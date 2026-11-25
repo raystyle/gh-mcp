@@ -1,4 +1,4 @@
-# gh-search-mcp
+# gh-mcp
 
 A read-only [MCP](https://modelcontextprotocol.io) server, over stdio, that lets an agent search **public** GitHub repositories and code, and read what it finds. It exposes three read-only tools and nothing that can write.
 
@@ -22,14 +22,14 @@ GitHub's own remote MCP server is the right tool if you want all of GitHub in yo
 Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-uv tool install git+https://github.com/raystyle/gh-search-mcp
-gh-search-mcp --version
+uv tool install git+https://github.com/raystyle/gh-mcp
+gh-mcp --version
 ```
 
 Or run it without installing:
 
 ```bash
-uvx --from git+https://github.com/raystyle/gh-search-mcp gh-search-mcp --version
+uvx --from git+https://github.com/raystyle/gh-mcp gh-mcp --version
 ```
 
 The server itself takes no arguments and speaks MCP on stdin/stdout.
@@ -51,7 +51,7 @@ GitHub requires authentication for code search, which is why that tool cannot ru
 Claude Code:
 
 ```bash
-claude mcp add-json gh-search '{"command":"gh-search-mcp","env":{"GITHUB_PAT":"<your token>"}}'
+claude mcp add-json gh-search '{"command":"gh-mcp","env":{"GITHUB_PAT":"<your token>"}}'
 ```
 
 Any client that takes a stdio server command:
@@ -60,7 +60,7 @@ Any client that takes a stdio server command:
 {
   "mcpServers": {
     "gh-search": {
-      "command": "gh-search-mcp",
+      "command": "gh-mcp",
       "env": { "GITHUB_PAT": "<your token>" }
     }
   }
@@ -126,10 +126,10 @@ GitHub rate limits search separately from the rest of the API: 30 requests per m
 ```bash
 uv sync --group dev
 uv run pytest
-uv run python -m gh_search_mcp   # run the server from the working tree
+uv run python -m gh_mcp   # run the server from the working tree
 ```
 
-The tests use an in-memory fake of the GitHub API and need no network or token. `src/gh_search_mcp/github.py` is the API client, `render.py` turns results into markdown, and `server.py` wires them to MCP.
+The tests use an in-memory fake of the GitHub API and need no network or token. `src/gh_mcp/github.py` is the API client, `render.py` turns results into markdown, and `server.py` wires them to MCP.
 
 ## License
 

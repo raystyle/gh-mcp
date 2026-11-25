@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from gh_search_mcp.github import human_size
+from gh_mcp.github import human_size
 
 DESCRIPTION_CHARS = 200
 FRAGMENT_CHARS = 400

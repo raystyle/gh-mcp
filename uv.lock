@@ -261,7 +261,7 @@ wheels = [
 ]
 
 [[package]]
-name = "gh-search-mcp"
+name = "gh-mcp"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

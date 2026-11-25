@@ -9,8 +9,8 @@ import httpx
 import pytest
 from fake_github import FakeGitHub, code, error, ok, repo
 
-from gh_search_mcp.github import MAX_LIMIT, MAX_QUERY_LENGTH, GitHubClient, GitHubError, _public_query
-from gh_search_mcp.server import TOKEN_ENV_VARS, token_from_env
+from gh_mcp.github import MAX_LIMIT, MAX_QUERY_LENGTH, GitHubClient, GitHubError, _public_query
+from gh_mcp.server import TOKEN_ENV_VARS, token_from_env
 
 
 def params_of(request: httpx.Request) -> dict[str, str]:
