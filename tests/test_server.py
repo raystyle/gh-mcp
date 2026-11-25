@@ -24,10 +24,10 @@ from gh_search_mcp.server import AppContext, create_server, search_code, search_
 
 
 @pytest.mark.anyio
-async def test_exposes_exactly_two_read_only_tools():
+async def test_exposes_exactly_three_read_only_tools():
     tools = {tool.name: tool for tool in await create_server(env={}).list_tools()}
 
-    assert sorted(tools) == ["search_code", "search_repositories"]
+    assert sorted(tools) == ["get_file_contents", "search_code", "search_repositories"]
     for tool in tools.values():
         assert tool.annotations.read_only_hint is True
         assert tool.annotations.destructive_hint is False
@@ -41,6 +41,12 @@ async def test_exposes_exactly_two_read_only_tools():
 
     repo_schema = tools["search_repositories"].input_schema
     assert sorted(repo_schema["properties"]) == ["limit", "order", "page", "query", "sort"]
+
+    file_schema = tools["get_file_contents"].input_schema
+    assert sorted(file_schema["properties"]) == [
+        "end_line", "owner", "path", "recursive", "ref", "repo", "start_line"
+    ]
+    assert file_schema["required"] == ["owner", "repo"]
 
 
 # ---------- tool logic ----------
@@ -124,7 +130,7 @@ def test_stdio_handshake_tool_list_and_token_guidance():
         server.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
         tools = {tool["name"]: tool for tool in server.rpc(2, "tools/list")["tools"]}
-        assert sorted(tools) == ["search_code", "search_repositories"]
+        assert sorted(tools) == ["get_file_contents", "search_code", "search_repositories"]
         assert tools["search_repositories"]["annotations"]["readOnlyHint"] is True
 
         result = server.rpc(3, "tools/call", {"name": "search_code", "arguments": {"query": "x"}})

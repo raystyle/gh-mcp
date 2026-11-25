@@ -17,8 +17,9 @@ from mcp_types import ToolAnnotations
 from pydantic import Field
 
 from . import __version__
-from .github import DEFAULT_LIMIT, MAX_LIMIT, MAX_QUERY_LENGTH, GitHubClient, GitHubError, Order, RepoSort
+from .github import DEFAULT_LIMIT, MAX_LINES, MAX_LIMIT, MAX_QUERY_LENGTH, GitHubClient, GitHubError, Order, RepoSort
 from .render import code as render_code
+from .render import file_contents as render_file_contents
 from .render import repositories as render_repositories
 
 SERVER_NAME = "gh-search-mcp"
@@ -28,10 +29,22 @@ rate limits apply) but code search does not: GitHub requires a token for it."""
 
 INSTRUCTIONS = """Searches public GitHub data only. Build `query` with GitHub search qualifier
 syntax (`language:`, `stars:>N`, `topic:`, `repo:`, `user:`, `org:`, `in:path`, and so on);
-natural-language words are also accepted. Sort is relevance unless you ask otherwise."""
+natural-language words are also accepted. Sort is relevance unless you ask otherwise.
+After a search, `get_file_contents` opens what you found: a file by path, a directory
+listing, or (with `recursive`) a repository's whole tree. All three serve public
+repositories only."""
 
 Limit = Annotated[int, Field(ge=1, le=MAX_LIMIT, description="Maximum number of results to return (1–50).")]
 Page = Annotated[int, Field(ge=1, description="1-based page of results; start at 1.")]
+Owner = Annotated[str, Field(min_length=1, max_length=100, description="Repository owner: a user or organization name.")]
+Repo = Annotated[str, Field(min_length=1, max_length=100, description="Repository name.")]
+Path = Annotated[str, Field(max_length=1000, description="File or directory path. Empty lists the repository root.")]
+Ref = Annotated[str | None, Field(max_length=200, description="Branch, tag or commit SHA. Defaults to the default branch.")]
+StartLine = Annotated[int, Field(ge=1, description="First line to return (1-based). Ignored for directories.")]
+EndLine = Annotated[
+    int | None,
+    Field(description=f"Last line to return, inclusive. At most {MAX_LINES} lines are returned per call. Ignored for directories."),
+]
 
 READ_ONLY = ToolAnnotations(
     read_only_hint=True,
@@ -96,6 +109,27 @@ def _app(ctx: Context) -> AppContext:
     return app
 
 
+async def get_file_contents(
+    app: AppContext,
+    owner: str,
+    repo: str,
+    *,
+    path: str = "",
+    ref: str | None = None,
+    recursive: bool = False,
+    start_line: int = 1,
+    end_line: int | None = None,
+) -> str:
+    """Logic behind the ``get_file_contents`` tool. Returns markdown text."""
+    try:
+        result = await app.client.get_file_contents(
+            owner, repo, path=path, ref=ref, recursive=recursive, start_line=start_line, end_line=end_line
+        )
+    except GitHubError as exc:
+        raise ToolError(str(exc)) from exc
+    return render_file_contents(result)
+
+
 def create_server(env: Mapping[str, str] | None = None) -> MCPServer:
     """Build the server. ``env`` defaults to ``os.environ``; tests pass a mapping."""
     environ = os.environ if env is None else env
@@ -148,6 +182,24 @@ def create_server(env: Mapping[str, str] | None = None) -> MCPServer:
     ) -> str:
         """Search code in public GitHub repositories. Results from private repositories are never returned."""
         return await search_code(_app(ctx), query, limit=limit, page=page)
+
+    @server.tool(name="get_file_contents", annotations=READ_ONLY, structured_output=False)
+    async def _tool_get_file_contents(
+        owner: Owner,
+        repo: Repo,
+        ctx: Context,
+        path: Path = "",
+        ref: Ref = None,
+        recursive: Annotated[
+            bool, Field(description="For a directory: show its whole subtree instead of a single level.")
+        ] = False,
+        start_line: StartLine = 1,
+        end_line: EndLine = None,
+    ) -> str:
+        """Read a text file, list a directory, or show a repository's tree, in a public GitHub repository. Use it after a search to open what you found."""
+        return await get_file_contents(
+            _app(ctx), owner, repo, path=path, ref=ref, recursive=recursive, start_line=start_line, end_line=end_line
+        )
 
     return server
 

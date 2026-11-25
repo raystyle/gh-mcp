@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from gh_search_mcp.github import human_size
+
 DESCRIPTION_CHARS = 200
 FRAGMENT_CHARS = 400
 FRAGMENT_LINES = 8
@@ -91,3 +93,121 @@ def code(result: dict[str, Any], *, page: int, limit: int) -> str:
         lines.append(f"   {item.get('html_url', '')}")
     lines.extend(note for note in _footer(result, page, limit))
     return "\n".join(lines) + "\n"
+
+
+# ---------- get_file_contents ----------
+
+
+def _count(n: int, singular: str, plural: str | None = None) -> str:
+    return f"{n} {singular if n == 1 else (plural or singular + 's')}"
+
+
+def _at(result: dict[str, Any]) -> str:
+    return f"`{result['owner']}/{result['repo']}` at `{result['ref']}`"
+
+
+def directory(result: dict[str, Any]) -> str:
+    entries = sorted(result["entries"], key=lambda entry: (entry["type"] != "dir", entry["name"].lower()))
+    dirs = sum(1 for entry in entries if entry["type"] == "dir")
+    files = len(entries) - dirs
+    where = f"`{result['path']}/`" if result["path"] else "`/`"
+    lines = [
+        f"{_at(result)} — directory {where} ("
+        + (f"{_count(len(entries), 'entry', 'entries')}: " if len(entries) != 1 else "")
+        + f"{dirs} director{'y' if dirs == 1 else 'ies'}, {_count(files, 'file')})"
+    ]
+    if not entries:
+        lines.append("The directory is empty.")
+    labels = {"dir": "DIR", "file": "FILE", "symlink": "LINK", "submodule": "SUBMODULE"}
+    for entry in entries:
+        kind = entry["type"]
+        name = entry["name"] + ("/" if kind == "dir" else "")
+        if kind == "file":
+            detail = f" ({human_size(entry['size'])})" if entry["size"] else ""
+        elif kind == "symlink":
+            detail = f" -> {entry.get('target') or '?'}"
+        else:
+            detail = ""
+        label = labels.get(kind, kind.upper() or "?")
+        lines.append(f"{label:<8} {name}{detail}")
+    lines.append("Open an entry with get_file_contents and its path.")
+    return "\n".join(lines) + "\n"
+
+
+def _nest(entries: list[dict[str, Any]], base: int) -> dict[str, Any]:
+    root: dict[str, Any] = {}
+    for entry in entries:
+        parts = entry["path"][base:].split("/")
+        node = root
+        for part in parts[:-1]:
+            node = node.setdefault(part, {})
+            if node is None:  # a file where a directory was expected: inconsistent data, skip it
+                break
+        else:
+            node.setdefault(parts[-1], None if entry["type"] == "blob" else {})
+    return root
+
+
+def _walk(node: dict[str, Any], depth: int, out: list[str]) -> None:
+    for name in sorted(node, key=lambda n: (node[n] is None, n.lower())):
+        if node[name] is None:
+            out.append("  " * depth + name)
+        else:
+            out.append("  " * depth + name + "/")
+            _walk(node[name], depth + 1, out)
+
+
+def tree(result: dict[str, Any]) -> str:
+    shown = result["entries"]
+    where = f"`{result['path']}/`" if result["path"] else "the repository root"
+    lines = [f"{_at(result)} — tree under {where} ({_count(result['total'], 'entry', 'entries')})"]
+    if not shown:
+        lines.append("The tree is empty.")
+    base = len(result["path"]) + 1 if result["path"] else 0
+    _walk(_nest(shown, base), 0, lines)
+    notes: list[str] = []
+    if result["total"] > len(shown):
+        notes.append(f"Showing the first {len(shown)} of {result['total']} entries. Narrow with path=<directory>.")
+    if result.get("api_truncated"):
+        notes.append("GitHub truncated this tree because the repository is very large; entries beyond its limit are missing.")
+    for note in notes:
+        lines.extend(["", note])
+    return "\n".join(lines) + "\n"
+
+
+def file(result: dict[str, Any]) -> str:
+    header = (
+        f"{_at(result)} — file `{result['path']}`: "
+        f"{_count(result['total_lines'], 'line')}, {human_size(result['size'])}"
+    )
+    if result.get("sha"):
+        header += f", blob {result['sha'][:12]}"
+    lines = [header]
+    total = result["total_lines"]
+    if total == 0:
+        lines.append("The file is empty.")
+        return "\n".join(lines) + "\n"
+
+    start, end = result["start_line"], result["end_line"]
+    window = f"Lines {start}–{end} of {total}"
+    if result.get("stop_reason") == "long_line":
+        shown_chars = len(result["lines"][0])
+        lines.append(f"{window}; line {start} is longer than the output limit, so only its first {shown_chars:,} characters are shown.")
+    elif end >= total:
+        lines.append(window + ".")
+    elif result.get("stop_reason") == "chars":
+        lines.append(f"{window}; stopped because the output limit was reached. Continue with start_line={end + 1}.")
+    else:
+        lines.append(f"{window}. Continue with start_line={end + 1}.")
+    lines.append("")
+    lines.extend(result["lines"])
+    return "\n".join(lines) + "\n"
+
+
+def file_contents(result: dict[str, Any]) -> str:
+    """Render whatever ``get_file_contents`` returned: a file, a directory listing, or a tree."""
+    if result["kind"] == "file":
+        return file(result)
+    if result["kind"] == "tree":
+        return tree(result)
+    return directory(result)

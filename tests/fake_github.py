@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 from collections.abc import Callable
 from typing import Any
 
@@ -55,3 +56,50 @@ def ok(items: list[dict[str, Any]], total: int | None = None, incomplete: bool =
 
 def error(status: int, message: str = "", headers: dict[str, str] | None = None, **body: Any) -> httpx.Response:
     return httpx.Response(status, json={"message": message, **body}, headers=headers)
+
+
+def _raw(text: str | bytes) -> bytes:
+    return text.encode("utf-8") if isinstance(text, str) else text
+
+
+def file_entry(
+    path: str, text: str | bytes = "hello\n", *, sha: str = "f" * 40, size: int | None = None, encoding: str | None = "base64"
+) -> dict[str, Any]:
+    """A `/repos/{}/contents/{path}` response for a file."""
+    raw = _raw(text)
+    return {
+        "type": "file",
+        "name": path.rsplit("/", 1)[-1],
+        "path": path,
+        "sha": sha,
+        "size": len(raw) if size is None else size,
+        "encoding": encoding,
+        "content": base64.b64encode(raw).decode("ascii") if encoding == "base64" else "",
+    }
+
+
+def entry(name: str, path: str | None = None, kind: str = "dir", size: int = 0, **extra: Any) -> dict[str, Any]:
+    """One element of a directory listing."""
+    return {"name": name, "path": path if path is not None else name, "type": kind, "size": size, **extra}
+
+
+def tree(*paths: str, truncated: bool = False) -> httpx.Response:
+    """A recursive Git Trees response; a path ending in `/` becomes a directory."""
+    items = [
+        {"path": p.rstrip("/"), "type": "tree" if p.endswith("/") else "blob", "size": None if p.endswith("/") else 10}
+        for p in paths
+    ]
+    return httpx.Response(200, json={"sha": "t" * 40, "truncated": truncated, "tree": items})
+
+
+def routes(table: dict[str, Handler], default: Handler | None = None) -> Handler:
+    """Answer requests by path; anything unexpected fails the test."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path in table:
+            return table[request.url.path](request)
+        if default is not None:
+            return default(request)
+        raise AssertionError(f"unexpected request: {request.method} {request.url}")
+
+    return handler
