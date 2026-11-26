@@ -1,4 +1,4 @@
-"""MCP server: two read-only GitHub search tools, served over stdio."""
+"""MCP server: five read-only GitHub tools, served over stdio."""
 
 from __future__ import annotations
 
@@ -17,9 +17,22 @@ from mcp_types import ToolAnnotations
 from pydantic import Field
 
 from . import __version__
-from .github import DEFAULT_LIMIT, MAX_LINES, MAX_LIMIT, MAX_QUERY_LENGTH, GitHubClient, GitHubError, Order, RepoSort
+from .github import (
+    DEFAULT_LIMIT,
+    MAX_LINES,
+    MAX_LIMIT,
+    MAX_QUERY_LENGTH,
+    GitHubClient,
+    GitHubError,
+    IssueKind,
+    IssueSort,
+    Order,
+    RepoSort,
+)
 from .render import code as render_code
 from .render import file_contents as render_file_contents
+from .render import issue as render_issue
+from .render import issues as render_issues
 from .render import repositories as render_repositories
 
 SERVER_NAME = "gh-mcp"
@@ -31,13 +44,15 @@ INSTRUCTIONS = """Searches public GitHub data only. Build `query` with GitHub se
 syntax (`language:`, `stars:>N`, `topic:`, `repo:`, `user:`, `org:`, `in:path`, and so on);
 natural-language words are also accepted. Sort is relevance unless you ask otherwise.
 After a search, `get_file_contents` opens what you found: a file by path, a directory
-listing, or (with `recursive`) a repository's whole tree. All three serve public
-repositories only."""
+listing, or (with `recursive`) a repository's whole tree. `search_issues` and
+`search_pull_requests` find issues and PRs in public repositories; `get_issue` and
+`get_pull_request` read one in full. All tools serve public repositories only."""
 
 Limit = Annotated[int, Field(ge=1, le=MAX_LIMIT, description="Maximum number of results to return (1–50).")]
 Page = Annotated[int, Field(ge=1, description="1-based page of results; start at 1.")]
 Owner = Annotated[str, Field(min_length=1, max_length=100, description="Repository owner: a user or organization name.")]
 Repo = Annotated[str, Field(min_length=1, max_length=100, description="Repository name.")]
+IssueNumber = Annotated[int, Field(ge=1, description="Issue or pull request number, as shown in its URL.")]
 Path = Annotated[str, Field(max_length=1000, description="File or directory path. Empty lists the repository root.")]
 Ref = Annotated[str | None, Field(max_length=200, description="Branch, tag or commit SHA. Defaults to the default branch.")]
 StartLine = Annotated[int, Field(ge=1, description="First line to return (1-based). Ignored for directories.")]
@@ -45,7 +60,6 @@ EndLine = Annotated[
     int | None,
     Field(description=f"Last line to return, inclusive. At most {MAX_LINES} lines are returned per call. Ignored for directories."),
 ]
-
 READ_ONLY = ToolAnnotations(
     read_only_hint=True,
     destructive_hint=False,
@@ -107,6 +121,43 @@ def _app(ctx: Context) -> AppContext:
     if not isinstance(app, AppContext):  # pragma: no cover - defensive
         raise ToolError("Server context is not initialised.")
     return app
+
+
+async def search_issues(
+    app: AppContext,
+    query: str,
+    *,
+    kind: IssueKind = "issue",
+    sort: IssueSort = "best",
+    order: Order = "desc",
+    limit: int = DEFAULT_LIMIT,
+    page: int = 1,
+) -> str:
+    """Logic behind the ``search_issues`` and ``search_pull_requests`` tools. Returns markdown text."""
+    try:
+        result = await app.client.search_issues(query, kind=kind, sort=sort, order=order, limit=limit, page=page)
+    except GitHubError as exc:
+        raise ToolError(str(exc)) from exc
+    return render_issues(result, kind=kind, sort=sort, order=order, page=page, limit=limit)
+
+
+async def get_issue(
+    app: AppContext,
+    owner: str,
+    repo: str,
+    number: int,
+    *,
+    kind: IssueKind = "issue",
+) -> str:
+    """Logic behind the ``get_issue`` and ``get_pull_request`` tools. Returns markdown text."""
+    try:
+        if kind == "pull_request":
+            result = await app.client.get_pull_request(owner, repo, number)
+        else:
+            result = await app.client.get_issue(owner, repo, number)
+    except GitHubError as exc:
+        raise ToolError(str(exc)) from exc
+    return render_issue(result, kind)
 
 
 async def get_file_contents(
@@ -200,6 +251,70 @@ def create_server(env: Mapping[str, str] | None = None) -> MCPServer:
         return await get_file_contents(
             _app(ctx), owner, repo, path=path, ref=ref, recursive=recursive, start_line=start_line, end_line=end_line
         )
+
+    @server.tool(name="search_issues", annotations=READ_ONLY, structured_output=False)
+    async def _tool_search_issues(
+        query: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=MAX_QUERY_LENGTH,
+                description=(
+                    "Issue search text with optional GitHub qualifiers, e.g. `memory leak repo:python/cpython state:open` "
+                    "or `docker label:good-first-issue`."
+                ),
+            ),
+        ],
+        ctx: Context,
+        sort: IssueSort = "best",
+        order: Order = "desc",
+        limit: Limit = DEFAULT_LIMIT,
+        page: Page = 1,
+    ) -> str:
+        """Search issues in public GitHub repositories. Results are always restricted to public repositories."""
+        return await search_issues(_app(ctx), query, sort=sort, order=order, limit=limit, page=page)
+
+    @server.tool(name="search_pull_requests", annotations=READ_ONLY, structured_output=False)
+    async def _tool_search_pull_requests(
+        query: Annotated[
+            str,
+            Field(
+                min_length=1,
+                max_length=MAX_QUERY_LENGTH,
+                description=(
+                    "Pull request search text with optional GitHub qualifiers, e.g. `fuzz repo:rust-lang/rust is:merged` "
+                    "or `fix crash language:go`."
+                ),
+            ),
+        ],
+        ctx: Context,
+        sort: IssueSort = "best",
+        order: Order = "desc",
+        limit: Limit = DEFAULT_LIMIT,
+        page: Page = 1,
+    ) -> str:
+        """Search pull requests in public GitHub repositories. Results are always restricted to public repositories."""
+        return await search_issues(_app(ctx), query, kind="pull_request", sort=sort, order=order, limit=limit, page=page)
+
+    @server.tool(name="get_issue", annotations=READ_ONLY, structured_output=False)
+    async def _tool_get_issue(
+        owner: Owner,
+        repo: Repo,
+        issue_number: IssueNumber,
+        ctx: Context,
+    ) -> str:
+        """Read one issue in a public GitHub repository: title, state, labels, author and description."""
+        return await get_issue(_app(ctx), owner, repo, issue_number)
+
+    @server.tool(name="get_pull_request", annotations=READ_ONLY, structured_output=False)
+    async def _tool_get_pull_request(
+        owner: Owner,
+        repo: Repo,
+        pull_number: IssueNumber,
+        ctx: Context,
+    ) -> str:
+        """Read one pull request in a public GitHub repository: title, state, labels, author and description."""
+        return await get_issue(_app(ctx), owner, repo, pull_number, kind="pull_request")
 
     return server
 

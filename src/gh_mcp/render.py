@@ -95,7 +95,84 @@ def code(result: dict[str, Any], *, page: int, limit: int) -> str:
     return "\n".join(lines) + "\n"
 
 
-# ---------- get_file_contents ----------
+# ---------- search_issues / get_issue / get_pull_request ----------
+
+
+def _labels(item: dict[str, Any]) -> str:
+    names = [str(label.get("name") or "") for label in item.get("labels") or [] if isinstance(label, dict)]
+    return " ".join(f"`{name}`" for name in names if name)
+
+
+def _issue_facts(item: dict[str, Any], word: str) -> str:
+    state = str(item.get("state") or "?")
+    if item.get("draft"):
+        state += " draft"
+    if item.get("state_reason"):
+        state += f" ({item['state_reason']})"
+    facts = [f"{word} #{item.get('number', '?')}", state]
+    if item.get("comments"):
+        facts.append(f"{_count(int(item['comments']), 'comment')}")
+    reactions = (item.get("reactions") or {}).get("total_count")
+    if reactions:
+        facts.append(f"{reactions:,} reactions")
+    return " · ".join(facts)
+
+
+def issues(result: dict[str, Any], *, kind: str, sort: str, order: str, page: int, limit: int) -> str:
+    word = "pull requests" if kind == "pull_request" else "issues"
+    items: list[dict[str, Any]] = result["items"]
+    lines = [f"Showing {_window(page, len(items), limit)} of {result['total_count']:,} public {word} for: `{result['query']}`"]
+    if result.get("incomplete_results"):
+        lines.append("GitHub reports this result set may be incomplete.")
+    if sort != "best":
+        lines.append(f"Sorted by {sort} ({order}).")
+    if not items:
+        lines.append(f"No public {word} matched.")
+    for number, item in enumerate(items, start=(page - 1) * limit + 1):
+        repo = str(item.get("repository_url") or "").rsplit("/repos/", 1)[-1]
+        author = (item.get("user") or {}).get("login") or "?"
+        lines.append("")
+        lines.append(f"{number}. {item.get('title', '?')} — {_issue_facts(item, word[:-1])}")
+        lines.append(f"   {repo} · opened by {author} · {item.get('html_url', '')}")
+        labels = _labels(item)
+        if labels:
+            lines.append(f"   {labels}")
+        if item.get("body"):
+            lines.append(f"   {_clip(item['body'], DESCRIPTION_CHARS)}")
+    lines.extend(note for note in _footer(result, page, limit))
+    return "\n".join(lines) + "\n"
+
+
+def _issue_body(result: dict[str, Any]) -> list[str]:
+    body = result["body"]
+    out: list[str] = []
+    if body["total_lines"] == 0:
+        out.append("The description is empty.")
+        return out
+    shown = len(body["lines"])
+    window = f"Lines 1–{shown} of {body['total_lines']} of the description"
+    if body["truncated"]:
+        out.append(f"{window}; clipped to the first {shown} lines. Read the rest at the URL above.")
+    else:
+        out.append(window + ".")
+    out.append("")
+    out.extend(body["lines"])
+    return out
+
+
+def issue(result: dict[str, Any], kind: str) -> str:
+    """Render one issue or pull request from ``get_issue`` / ``get_pull_request``."""
+    word = "pull request" if kind == "pull_request" else "issue"
+    lines = [f"`{result['owner']}/{result['repo']}` — {word} #{result['number']}: {result['title']}"]
+    facts = [result.get("state") or "?"]
+    if result.get("labels"):
+        facts.append(", ".join(result["labels"]))
+    if result.get("comments"):
+        facts.append(f"{_count(result['comments'], 'comment')}")
+    lines.append(" · ".join(facts) + f" · opened by {result.get('user') or '?'} · {_date(result.get('created_at'))}")
+    lines.append(f"{result.get('html_url', '')}")
+    lines.extend(_issue_body(result))
+    return "\n".join(lines) + "\n"
 
 
 def _count(n: int, singular: str, plural: str | None = None) -> str:

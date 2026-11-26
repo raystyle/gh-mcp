@@ -1,7 +1,7 @@
 [project]
 name = "gh-mcp"
-version = "0.1.0"
-description = "Read-only MCP server (stdio) that searches public GitHub repositories and code"
+version = "0.2.0"
+description = "Read-only MCP server (stdio) that searches public GitHub repositories, code, issues and pull requests"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

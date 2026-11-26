@@ -24,14 +24,18 @@ from gh_mcp.server import AppContext, create_server, search_code, search_reposit
 
 
 @pytest.mark.anyio
-async def test_exposes_exactly_three_read_only_tools():
+async def test_exposes_exactly_five_read_only_tools():
     tools = {tool.name: tool for tool in await create_server(env={}).list_tools()}
 
-    assert sorted(tools) == ["get_file_contents", "search_code", "search_repositories"]
+    assert sorted(tools) == [
+        "get_file_contents", "get_issue", "get_pull_request", "search_code",
+        "search_issues", "search_pull_requests", "search_repositories",
+    ]
     for tool in tools.values():
-        assert tool.annotations.read_only_hint is True
-        assert tool.annotations.destructive_hint is False
-        assert tool.description.strip()
+        annotations = tool.annotations
+        assert annotations is not None and annotations.read_only_hint is True
+        assert annotations.destructive_hint is False
+        assert tool.description and tool.description.strip()
 
     code_schema = tools["search_code"].input_schema
     assert sorted(code_schema["properties"]) == ["limit", "page", "query"]
@@ -41,6 +45,19 @@ async def test_exposes_exactly_three_read_only_tools():
 
     repo_schema = tools["search_repositories"].input_schema
     assert sorted(repo_schema["properties"]) == ["limit", "order", "page", "query", "sort"]
+
+    issue_schema = tools["search_issues"].input_schema
+    assert sorted(issue_schema["properties"]) == ["limit", "order", "page", "query", "sort"]
+    pull_schema = tools["search_pull_requests"].input_schema
+    assert sorted(pull_schema["properties"]) == ["limit", "order", "page", "query", "sort"]
+
+    get_issue_schema = tools["get_issue"].input_schema
+    assert sorted(get_issue_schema["properties"]) == ["issue_number", "owner", "repo"]
+    assert get_issue_schema["required"] == ["owner", "repo", "issue_number"]
+
+    get_pull_schema = tools["get_pull_request"].input_schema
+    assert sorted(get_pull_schema["properties"]) == ["owner", "pull_number", "repo"]
+    assert get_pull_schema["required"] == ["owner", "repo", "pull_number"]
 
     file_schema = tools["get_file_contents"].input_schema
     assert sorted(file_schema["properties"]) == [
@@ -130,7 +147,10 @@ def test_stdio_handshake_tool_list_and_token_guidance():
         server.send({"jsonrpc": "2.0", "method": "notifications/initialized"})
 
         tools = {tool["name"]: tool for tool in server.rpc(2, "tools/list")["tools"]}
-        assert sorted(tools) == ["get_file_contents", "search_code", "search_repositories"]
+        assert sorted(tools) == [
+            "get_file_contents", "get_issue", "get_pull_request", "search_code",
+            "search_issues", "search_pull_requests", "search_repositories",
+        ]
         assert tools["search_repositories"]["annotations"]["readOnlyHint"] is True
 
         result = server.rpc(3, "tools/call", {"name": "search_code", "arguments": {"query": "x"}})

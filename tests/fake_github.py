@@ -54,6 +54,46 @@ def ok(items: list[dict[str, Any]], total: int | None = None, incomplete: bool =
     )
 
 
+def issue_item(
+    number: int = 1,
+    full_name: str = "owner/repo",
+    title: str = "A bug",
+    *,
+    state: str = "open",
+    body: str | None = "steps to reproduce\nmore detail",
+    comments: int = 0,
+    labels: list[str] | None = None,
+    user: str = "alice",
+    reactions: int = 0,
+    draft: bool = False,
+    pull_request: bool = False,
+    state_reason: str | None = None,
+) -> dict[str, Any]:
+    """A `/search/issues` result item, or a `/repos/{}/{}/issues|pulls/{n}` response."""
+    item: dict[str, Any] = {
+        "number": number,
+        "title": title,
+        "state": state,
+        "state_reason": state_reason,
+        "body": body,
+        "comments": comments,
+        "labels": [{"name": name} for name in labels or []],
+        "user": {"login": user},
+        "html_url": f"https://github.com/{full_name}/issues/{number}",
+        "repository_url": f"https://api.github.com/repos/{full_name}",
+        "created_at": "2026-01-02T03:04:05Z",
+        "updated_at": "2026-02-03T04:05:06Z",
+        "closed_at": None,
+        "reactions": {"total_count": reactions},
+    }
+    if draft:
+        item["draft"] = True
+    if pull_request:
+        item["pull_request"] = {"url": "https://api.github.com/repos/owner/repo/pulls/1"}
+        item["html_url"] = f"https://github.com/{full_name}/pull/{number}"
+    return item
+
+
 def error(status: int, message: str = "", headers: dict[str, str] | None = None, **body: Any) -> httpx.Response:
     return httpx.Response(status, json={"message": message, **body}, headers=headers)
 

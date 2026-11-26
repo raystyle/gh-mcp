@@ -36,7 +36,15 @@ MAX_CHARS = 32_000
 MAX_TREE_ENTRIES = 400
 """Entries listed per recursive directory tree at most."""
 
+MAX_BODY_LINES = 100
+"""Lines of an issue or pull request description shown at most."""
+
+MAX_BODY_CHARS = 8_000
+"""Characters of an issue or pull request description shown at most."""
+
 RepoSort = Literal["best", "stars", "forks", "help-wanted-issues", "updated"]
+IssueSort = Literal["best", "comments", "reactions", "created", "updated"]
+IssueKind = Literal["issue", "pull_request"]
 Order = Literal["desc", "asc"]
 
 
@@ -68,6 +76,29 @@ def _is_public_repo(item: dict[str, Any]) -> bool:
 
 def _is_public_code(item: dict[str, Any]) -> bool:
     return not (item.get("repository") or {}).get("private")
+
+
+def _is_public_issue(item: dict[str, Any]) -> bool:
+    # Search items carry no repository visibility flag; a repository_url outside
+    # ``/repos/`` cannot happen, so treat a missing owner/repo as suspicious and drop it.
+    url = str(item.get("repository_url") or "")
+    owner_repo = url.split("/repos/")[-1] if "/repos/" in url else ""
+    return bool(owner_repo) and "/" in owner_repo
+
+
+def _body_clip(text: str) -> dict[str, Any]:
+    """Clip a description to a line and character budget."""
+    lines = _split_lines(text)
+    shown: list[str] = []
+    used = 0
+    for line in lines[:MAX_BODY_LINES]:
+        if used + len(line) + 1 > MAX_BODY_CHARS:
+            if not shown:  # always show where the first line starts
+                shown.append(line[:MAX_BODY_CHARS])
+            return {"total_lines": len(lines), "lines": shown, "truncated": True}
+        shown.append(line)
+        used += len(line) + 1
+    return {"total_lines": len(lines), "lines": shown, "truncated": len(shown) < len(lines)}
 
 
 def _split_rate_limited(response: httpx.Response) -> tuple[bool, str]:
@@ -286,6 +317,76 @@ class GitHubClient:
             return self._file(owner, repo, shown_ref, path, data, start_line, end_line)
         kind = data.get("type") if isinstance(data, dict) else "unknown"
         raise GitHubError(f"`{path}` in {where} is a {kind}, not a file or directory.")
+
+    async def search_issues(
+        self,
+        query: str,
+        *,
+        kind: IssueKind = "issue",
+        sort: IssueSort = "best",
+        order: Order = "desc",
+        limit: int = DEFAULT_LIMIT,
+        page: int = 1,
+    ) -> dict[str, Any]:
+        """Search issues or pull requests in public repositories, via ``GET /search/issues``."""
+        _check_page_args(query, limit, page)
+        qualifier = "is:pr" if kind == "pull_request" else "is:issue"
+        qualified = _public_query(f"{query} {qualifier}")
+        params: dict[str, Any] = {"q": qualified, "per_page": limit, "page": page, "advanced_search": "true"}
+        if sort != "best":
+            params["sort"] = sort
+            params["order"] = order
+        data = await self._get("/search/issues", params, accept="application/vnd.github.text-match+json")
+        raw = data.get("items") or []
+        items = [item for item in raw if _is_public_issue(item)]
+        return {
+            "query": qualified,
+            "kind": kind,
+            "total_count": int(data.get("total_count") or 0),
+            "incomplete_results": bool(data.get("incomplete_results")),
+            "items": items,
+            "hidden_private": len(raw) - len(items),
+        }
+
+    async def get_issue(self, owner: str, repo: str, number: int) -> dict[str, Any]:
+        """Read one issue in a public repository, with its description body."""
+        return await self._issue_or_pull(owner, repo, number, "issues")
+
+    async def get_pull_request(self, owner: str, repo: str, number: int) -> dict[str, Any]:
+        """Read one pull request in a public repository, with its description body."""
+        return await self._issue_or_pull(owner, repo, number, "pulls")
+
+    async def _issue_or_pull(self, owner: str, repo: str, number: int, endpoint: str) -> dict[str, Any]:
+        owner, repo = _repo_names(owner, repo)
+        if number < 1:
+            raise GitHubError(f"number must be 1 or greater, got {number}.")
+        # Same visibility check as get_file_contents: the issues/pulls endpoints do not
+        # reveal visibility, so a private repository is refused before content is requested.
+        await self._require_public(owner, repo)
+        data = await self._get(
+            f"/repos/{owner}/{repo}/{endpoint}/{number}",
+            {},
+            not_found=(
+                f"No {'issue' if endpoint == 'issues' else 'pull request'} #{number} found in {owner}/{repo}. "
+                "Check the number, or whether it is the other kind."
+            ),
+        )
+        body = _body_clip(str(data.get("body") or ""))
+        return {
+            "owner": owner,
+            "repo": repo,
+            "number": number,
+            "title": str(data.get("title") or ""),
+            "state": str(data.get("state") or ""),
+            "user": (data.get("user") or {}).get("login", ""),
+            "created_at": str(data.get("created_at") or ""),
+            "updated_at": str(data.get("updated_at") or ""),
+            "closed_at": data.get("closed_at"),
+            "labels": [str(label.get("name", "")) for label in data.get("labels") or [] if isinstance(label, dict)],
+            "comments": int(data.get("comments") or 0),
+            "html_url": str(data.get("html_url") or ""),
+            "body": body,
+        }
 
     async def _require_public(self, owner: str, repo: str) -> dict[str, Any]:
         info = await self._get(
